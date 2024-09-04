@@ -1,6 +1,13 @@
+
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'secure_storage.dart';
+
+
 class DioFactory {
   final SecureStorage storage;
 
+ 
   DioFactory(this.storage);
 
   Dio createDio() {
@@ -18,6 +25,7 @@ class TokenInterceptor extends Interceptor {
 
   TokenInterceptor({required this.storage});
 
+  ///요청 보내기 전
   @override
   void onRequest(
       RequestOptions options, RequestInterceptorHandler handler) async {
@@ -30,6 +38,7 @@ class TokenInterceptor extends Interceptor {
     return handler.next(options);
   }
 
+  ///응답 시
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
     return handler.next(response);
@@ -38,7 +47,7 @@ class TokenInterceptor extends Interceptor {
   @override
   void onError(DioException error, ErrorInterceptorHandler handler) async {
     if (error.response?.data['statusCode'] == 404) {
-      debugPrint('dio 404 에러'); //데이터 X
+      debugPrint('dio 404 에러'); //엑세스 토큰 오류는 아닐 때
       return handler.reject(error);
     } else if (error.response?.data['statusCode'] == 401) {
       debugPrint('dio 401 에러'); //엑세스 토큰 오류
@@ -47,7 +56,7 @@ class TokenInterceptor extends Interceptor {
         Dio dio = Dio();
         try {
           final response = await dio.get(
-            '${Config.instance.apiBaseUrl}/auth',
+            '/getAccessToken',
             options: Options(
               headers: {
                 'Content-Type': 'application/json',
@@ -59,13 +68,11 @@ class TokenInterceptor extends Interceptor {
           final accessToken = response.data['data']['accessToken'];
 
           final options = error.requestOptions;
-
           // 요청의 헤더에 새로 발급받은 accessToken으로 변경하기
           options.headers.addAll({
             'authorization': 'Bearer $accessToken',
           });
-
-          // secure storage도 update
+          // 새롭게 발급 받은 엑세스 토큰으로 갱신
           await storage.saveAccessToken(accessToken);
 
           // 원래 보내려던 요청 재전송
@@ -75,13 +82,8 @@ class TokenInterceptor extends Interceptor {
         } on DioException catch (e) {
           debugPrint('리프레시 토큰으로 토큰 갱신 실패 $e');
           await Future.value([
-            storage.deleteId(),
             storage.deleteToken(),
           ]);
-          //로그인 화면으로 이동 처리
-          // 이 부분에서 로그인 화면으로의 전환을 직접 구현해야 합니다.
-          // 예: Navigator.pushReplacementNamed(context, '/login');
-
           return handler.reject(e);
         }
       }
@@ -89,48 +91,5 @@ class TokenInterceptor extends Interceptor {
     }
     debugPrint('dio 에러메시지 ${error.response}'); //데이터 X
     return handler.reject(error);
-  }
-}
-
-void main() {
-  final secureStorage = SecureStorage(); // SecureStorage 인스턴스 생성
-  final dioFactory = DioFactory(secureStorage);
-  final dio = dioFactory.createDio(); // Dio 인스턴스 생성
-
-  runApp(MyApp(dio: dio)); // dio 인스턴스를 MyApp에 전달
-}
-
-class MyApp extends StatelessWidget {
-  final Dio dio;
-
-  MyApp({required this.dio});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Dio without Riverpod',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: MyHomePage(dio: dio),
-    );
-  }
-}
-
-class MyHomePage extends StatelessWidget {
-  final Dio dio;
-
-  MyHomePage({required this.dio});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Dio without Riverpod'),
-      ),
-      body: Center(
-        child: Text('My Home Page'),
-      ),
-    );
   }
 }
